@@ -35,9 +35,7 @@ function DashboardPage() {
       await axios.post(
         `${API_URL}/logout`,
         {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
     } catch (error) {
       console.error("Logout failed on server, proceeding.", error);
@@ -49,32 +47,69 @@ function DashboardPage() {
 
   if (!profile) return <div className="text-center mt-5">Loading...</div>;
 
+  // decode token for role
+  const token = localStorage.getItem("accessToken");
+  let userRole = "user";
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      userRole = payload.role;
+    } catch (e) {
+      console.error("Error decoding token", e);
+    }
+  }
+
   return (
-    <div className="d-flex justify-content-center align-items-center vh-100 bg-light">
-      <div
-        className="card shadow-lg p-4 text-center"
-        style={{ width: "28rem" }}
-      >
-        {/* Profile Icon */}
-        <div className="d-flex justify-content-center mb-3">
+    <div className="container d-flex justify-content-center align-items-center vh-100">
+      <div className="card shadow-lg border-0 p-4" style={{ width: "28rem" }}>
+        {/* Profile Avatar */}
+        <div className="text-center mb-3">
           <img
             src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
             alt="Profile Icon"
-            className="rounded-circle border"
+            className="rounded-circle border border-3"
             style={{ width: "100px", height: "100px", objectFit: "cover" }}
           />
         </div>
 
         {/* Welcome message */}
-        <h3 className="fw-bold text-primary mb-2">{profile.user.username}</h3>
-        <p className="text-muted mb-4">{profile.message}</p>
+        <h3 className="fw-bold text-center text-primary mb-1">
+          {profile.user.username}
+        </h3>
+        <p className="text-center text-muted">{profile.message}</p>
 
         {/* User details */}
-        <div className="card bg-light p-3 text-start mb-3">
-          <pre className="mb-0">{JSON.stringify(profile.user, null, 2)}</pre>
-        </div>
+        <ul className="list-group list-group-flush mb-3">
+          <li className="list-group-item">
+            <strong>Email:</strong> {profile.user.email}
+          </li>
+          <li className="list-group-item">
+            <strong>Role:</strong>{" "}
+            <span
+              className={`badge ${
+                userRole === "admin" ? "bg-danger" : "bg-secondary"
+              }`}
+            >
+              {userRole}
+            </span>
+          </li>
+          <li className="list-group-item">
+            <strong>Joined:</strong>{" "}
+            {new Date(profile.user.createdAt).toLocaleDateString()}
+          </li>
+        </ul>
 
-        {/* Logout Button */}
+        {/* Admin dashboard link (only for admins) */}
+        {userRole === "admin" && (
+          <a
+            href="/admin/dashboard"
+            className="btn btn-outline-primary w-100 mb-2"
+          >
+            🛠 Go to Admin Dashboard
+          </a>
+        )}
+
+        {/* Logout */}
         <button
           onClick={handleLogout}
           className="btn btn-danger w-100 fw-semibold"

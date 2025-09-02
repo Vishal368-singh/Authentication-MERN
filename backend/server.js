@@ -4,8 +4,9 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
-const User = require("./user"); // Import the User model
 
+const User = require("./user");
+const SessionLog = require("./SessionLog");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -81,10 +82,24 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
+    // Create a new session log entry
+    const sessionLog = new SessionLog({
+      userId: user._id,
+      username: user.username,
+      loginTime: new Date(),
+    });
+    await sessionLog.save();
+
+    // Add the session ID and user role to the JWT payload
     const accessToken = jwt.sign(
-      { id: user._id, username: user.username },
+      {
+        id: user._id,
+        username: user.username,
+        role: user.role,
+        sessionId: sessionLog._id,
+      },
       JWT_SECRET,
-      { expiresIn: "15m" }
+      { expiresIn: "1h" } // Increased expiry for better UX
     );
 
     res.json({ accessToken });
@@ -94,10 +109,28 @@ app.post("/api/login", async (req, res) => {
 });
 
 // 3. Logout a user
-app.post("/api/logout", authMiddleware, (req, res) => {
-  const token = req.headers["authorization"].split(" ")[1];
-  tokenBlocklist.add(token);
-  res.status(200).json({ message: "Successfully logged out." });
+app.post("/api/logout", authMiddleware, async (req, res) => {
+  try {
+    const token = req.headers["authorization"].split(" ")[1];
+    tokenBlocklist.add(token);
+
+    // Update the session log on logout
+    const { sessionId } = req.user; // Get sessionId from JWT payload
+    if (sessionId) {
+      const logoutTime = new Date();
+      const sessionLog = await SessionLog.findById(sessionId);
+      if (sessionLog) {
+        sessionLog.logoutTime = logoutTime;
+        sessionLog.durationInSeconds =
+          (logoutTime - sessionLog.loginTime) / 1000;
+        await sessionLog.save();
+      }
+    }
+    res.status(200).json({ message: "Successfully logged out." });
+  } catch (error) {
+    console.error("Logout Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 // 4. A Protected Route
@@ -115,6 +148,34 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// In server.js - Add this new admin middleware
+const adminAuthMiddleware = (req, res, next) => {
+  // req.user is attached by the preceding authMiddleware
+  if (req.user && req.user.role === "admin") {
+    next();
+  } else {
+    res.status(403).json({ message: "Forbidden: Admins only." });
+  }
+};
+
+// Add this new route for fetching session data
+// It uses two middlewares: first checks for a valid token, then checks for admin role
+app.get(
+  "/api/admin/sessions",
+  authMiddleware,
+  adminAuthMiddleware,
+  async (req, res) => {
+    try {
+      const sessions = await SessionLog.find()
+        .sort({ loginTime: -1 })
+        .limit(50);
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 app.listen(PORT, () =>
   console.log(`🚀 Backend server running on http://localhost:${PORT}`)
